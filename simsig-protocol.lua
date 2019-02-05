@@ -20,10 +20,10 @@ local msgtypes = {
   ["iA"] = function(buf, tree)
     tree:add(proto, buf(0,4), "Client name:", buf(0,4):string())
     tree:add(proto, buf(4,1), "Unknown:", buf(4,1):string())
-    return "Client connect: "..parse_version(buf(5), tree)
+    return "Connect, version: "..parse_version(buf(5), tree)
   end,
   ["iD"] = function(buf, tree)
-    return "Server version/ping: "..parse_version(buf, tree)
+    return "Version: "..parse_version(buf, tree)
   end,
 
   ["MA"] = function(buf, tree)
@@ -177,6 +177,12 @@ function parse_version(buf, tree)
   return ver
 end
 
+local src_port_f = Field.new("tcp.srcport")
+function is_server()
+  local src_port = src_port_f().value
+  return src_port == 50505 or src_port == 50507
+end
+
 -- create a function to dissect it
 function proto.dissector(buffer, pinfo, tree)
   pinfo.cols.protocol = "SimSig"
@@ -211,7 +217,7 @@ function proto.dissector(buffer, pinfo, tree)
   if npkts > 1 then
     info = "Batched messages"
   end
-  pinfo.cols.info = info
+  pinfo.cols.info = (is_server() and "Server: " or "Client: ") .. info
 end
 
 -- load the udp.port table
