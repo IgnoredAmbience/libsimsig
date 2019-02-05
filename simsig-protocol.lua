@@ -26,6 +26,12 @@ local msgtypes = {
     return "Server version/ping: "..parse_version(buf, tree)
   end,
 
+  ["MA"] = function(buf, tree)
+    local str = buf:string()
+    tree:add(proto, buf, "Sim setting:", str)
+    return "Sim setting: " .. str
+  end,
+
   -- Berth Requests
   ["BB"] = function(buf, tree)
     tree:add(proto, buf, "Unknown message body content")
