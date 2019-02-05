@@ -15,6 +15,13 @@ local msgs = ProtoField.uint8("simsig.msg_count", "Message count")
 proto.fields = {seq, crc, msgtype, msgs}
 
 -- Message types
+local function unknown_body(descr)
+  return function(buf, tree, cmd)
+    tree:add(proto, buf, "Unknown message body content", ("[%d bytes]"):format(buf:len()));
+    return ("%s (%s)"):format(descr, cmd)
+  end
+end
+
 local msgtypes = {
   -- Connection strings
   ["iA"] = function(buf, tree)
@@ -33,114 +40,39 @@ local msgtypes = {
   end,
 
   -- Berth Requests
-  ["BB"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Interpose berth"
-  end,
-  ["BC"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Cancel berth"
-  end,
+  ["BB"] = unknown_body("Interpose berth"),
+  ["BC"] = unknown_body("Cancel berth"),
 
   -- Signals
-  ["SA"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Set route"
-  end,
-  ["zD"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Cancel route"
-  end,
-  ["SB"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Apply isolation reminder to signal"
-  end,
-  ["SC"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Remove isolation reminder from signal"
-  end,
-  ["SD"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Apply general reminder to signal"
-  end,
-  ["SE"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Remove general reminder from signal"
-  end,
+  ["SA"] = unknown_body("Set route"),
+  ["zD"] = unknown_body("Cancel route"),
+  ["SB"] = unknown_body("Apply isolation reminder to signal"),
+  ["SC"] = unknown_body("Remove isolation reminder from signal"),
+  ["SD"] = unknown_body("Apply general reminder to signal"),
+  ["SE"] = unknown_body("Remove general reminder from signal"),
   -- Auto buttons
-  ["SF"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Set signal auto"
-  end,
-  ["SG"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Cancel signal auto"
-  end,
-  ["SH"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Apply isolation reminder to auto button"
-  end,
-  ["SI"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Apply general reminder to auto button"
-  end,
-  ["SJ"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Remove isolation reminder from auto button"
-  end,
-  ["SK"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Remove general reminder from auto button"
-  end,
+  ["SF"] = unknown_body("Set signal auto"),
+  ["SG"] = unknown_body("Cancel signal auto"),
+  ["SH"] = unknown_body("Apply isolation reminder to auto button"),
+  ["SI"] = unknown_body("Apply general reminder to auto button"),
+  ["SJ"] = unknown_body("Remove isolation reminder from auto button"),
+  ["SK"] = unknown_body("Remove general reminder from auto button"),
   -- Replacement buttons
-  ["SP"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Cancel signal replacement"
-  end,
-  ["SQ"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Set signal replacement"
-  end,
-  ["SR"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Apply isolation reminder to replacement button"
-  end,
-  ["SS"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Apply general reminder to replacement button"
-  end,
-  ["ST"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Remove isolation reminder from replacement button"
-  end,
-  ["SU"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Remove general reminder from replacement button"
-  end,
+  ["SP"] = unknown_body("Cancel signal replacement"),
+  ["SQ"] = unknown_body("Set signal replacement"),
+  ["SR"] = unknown_body("Apply isolation reminder to replacement button"),
+  ["SS"] = unknown_body("Apply general reminder to replacement button"),
+  ["ST"] = unknown_body("Remove isolation reminder from replacement button"),
+  ["SU"] = unknown_body("Remove general reminder from replacement button"),
 
   -- Points Setting
-  ["PB"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Key points normal"
-  end,
-  ["PC"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Key points reverse"
-  end,
-  ["PD"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Apply reminder to points"
-  end,
-  ["PE"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Remove reminder from points"
-  end,
+  ["PB"] = unknown_body("Key points normal"),
+  ["PC"] = unknown_body("Key points reverse"),
+  ["PD"] = unknown_body("Apply reminder to points"),
+  ["PE"] = unknown_body("Remove reminder from points"),
 
   -- Refresh State
-  ["iB"] = function(buf, tree)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Request refresh object state"
-  end,
+  ["iB"] = unknown_body("Request refresh object state"),
 
   -- Messages
   ["mA"] = function(buf, tree)
@@ -149,10 +81,7 @@ local msgtypes = {
     return "Simulation message"
   end,
 
-  default = function(buf, tree, cmd)
-    tree:add(proto, buf, "Unknown message body content")
-    return "Unknown message ("..cmd..")"
-  end,
+  default = unknown_body("Unknown command"),
 }
 
 function msgtypes:process(buf, tree)
@@ -238,7 +167,6 @@ local function menuable_tap()
     types[t] = count + 1
   end
 
-  -- this function will be called once every few seconds to update our window
   function tap.draw(t)
     tw:clear()
     for typ,num in pairs(types) do
@@ -246,8 +174,6 @@ local function menuable_tap()
     end
   end
 
-  -- this function will be called whenever a reset is needed
-  -- e.g. when reloading the capture file
   function tap.reset()
     tw:clear()
     types = {}
@@ -257,9 +183,10 @@ local function menuable_tap()
   retap_packets()
 end
 
--- load the udp.port table
+-- Register all the custom functions
 tcp_table = DissectorTable.get("tcp.port")
 tcp_table:add(50505, proto)
 tcp_table:add(50507, proto)
 
 register_menu("SimSig/Message Types", menuable_tap, MENU_TOOLS_UNSORTED)
+
