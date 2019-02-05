@@ -220,7 +220,46 @@ function proto.dissector(buffer, pinfo, tree)
   pinfo.cols.info = (is_server() and "Server: " or "Client: ") .. info
 end
 
+-- Analysis Window for SimSig message types
+local type_f = Field.new("simsig.type")
+local function menuable_tap()
+  local tw = TextWindow.new("Message Type Counter")
+  local tap = Listener.new(nil, "simsig")
+  local types = {}
+
+  local function remove()
+    tap:remove()
+  end
+  tw:set_atclose(remove)
+
+  function tap.packet(pinfo,tvb)
+    local t = type_f().value
+    local count = types[t] or 0
+    types[t] = count + 1
+  end
+
+  -- this function will be called once every few seconds to update our window
+  function tap.draw(t)
+    tw:clear()
+    for typ,num in pairs(types) do
+      tw:append(typ .. "\t" .. num .. "\n");
+    end
+  end
+
+  -- this function will be called whenever a reset is needed
+  -- e.g. when reloading the capture file
+  function tap.reset()
+    tw:clear()
+    types = {}
+  end
+
+  -- Ensure that all existing packets are processed.
+  retap_packets()
+end
+
 -- load the udp.port table
 tcp_table = DissectorTable.get("tcp.port")
 tcp_table:add(50505, proto)
 tcp_table:add(50507, proto)
+
+register_menu("SimSig/Message Types", menuable_tap, MENU_TOOLS_UNSORTED)
