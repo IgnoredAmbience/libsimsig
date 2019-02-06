@@ -165,19 +165,21 @@ function proto.dissector(buffer, pinfo, tree)
   pinfo.cols.protocol = "SimSig"
   tree = tree:add(proto, buffer())
   local ptree = tree
-  local info = nil
+  local info = 'ERROR, packet not parsed'
 
-  local body = buffer():string()
+  -- Use raw string function, as may contain extended ASCII characters that get converted to UTF8
+  -- with :string(), and cause length mismatches due to wireshark lua bugs
+  local body = buffer():raw()
   local _, npkts = body:gsub('|', '|')
-  local n = 1
+  local n = 0
   for init, pkt, fin in body:gmatch("()([^|]+)()|") do
     local begin = init - 1
     local len = fin - init
     local buf = buffer(begin, len)
 
+    n = n + 1
     if npkts > 1 then
       ptree = tree:add(proto, buf, "Message", n)
-      n = n + 1
     end
 
     if buf(0, 1):string() == "!" then
