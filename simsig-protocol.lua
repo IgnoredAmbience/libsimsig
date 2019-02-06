@@ -76,14 +76,17 @@ local msgtypes = {
 
   -- Messages
   ["mA"] = function(buf, tree)
+    local text = buf(2):string()
     tree:add(proto, buf(0, 2), "Simulation message type:", buf(0, 2):string())
-    tree:add(proto, buf(2), "Message content:", buf(2):string())
-    return "Simulation message"
+    tree:add(proto, buf(2), "Message content:", text)
+    return ("Simulation message (%s)"):format(text)
   end,
 
   default = unknown_body("Unknown command"),
 }
 
+-- Helpers
+-- Takes a message and parses with appropriate parser
 function msgtypes:process(buf, tree)
   local cmd = buf(0, 2)
   local f = self[cmd:string()] or self.default
@@ -93,7 +96,6 @@ function msgtypes:process(buf, tree)
   return msgname
 end
 
--- Helpers
 function parse_version(buf, tree)
   local ver, sim_ver, loader_ver, sim = buf:string():match("(([%d%.]+)/([%d%.]+)/(.+))")
   if sim_ver then
