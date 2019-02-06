@@ -15,7 +15,7 @@ local msgtype_f = ProtoField.string("simsig.type", "Message type", base.ASCII)
 local msgs_f = ProtoField.uint8("simsig.msg_count", "Message count")
 
 -- Identifiers
-local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.HEX_DEC)
+local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
 local descr_f = ProtoField.string("simsig.description", "Berth Description")
 
 proto.fields = {seq_f, crc_f, msgtype_f, msgs_f, berth_f, descr_f}
@@ -51,7 +51,7 @@ end
 
 -- Prints an object identity in decimal followed by hex
 local function id_str(id)
-  return string.format("%d (0x%.4X)", id, id)
+  return string.format("%d (0x%.4x)", id, id)
 end
 
 -- Default message parser for when the type of message is known, but the body content syntax is not.
