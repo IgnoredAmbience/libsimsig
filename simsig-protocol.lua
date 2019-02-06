@@ -8,17 +8,18 @@ local proto = Proto("simsig", "SimSig Protocol")
 --------------------
 -- Message fields --
 --------------------
+local is_client_f = ProtoField.bool("simsig.is_client", "Client Message")
 local seq_f = ProtoField.uint8("simsig.seq", "Message sequence", base.DEC)
 local crc_f = ProtoField.uint8("simsig.crc.value", "CRC", base.HEX)
 --local crcvalid_f = ProtoField.bool("simsig.crc.valid", "CRC Valid")
-local msgtype_f = ProtoField.string("simsig.type", "Message type", base.ASCII)
-local msgs_f = ProtoField.uint8("simsig.msg_count", "Message count")
+
+local msgtype_f = ProtoField.string("simsig.type", "Message type")
 
 -- Identifiers
 local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
 local descr_f = ProtoField.string("simsig.description", "Berth Description")
 
-proto.fields = {seq_f, crc_f, msgtype_f, msgs_f, berth_f, descr_f}
+proto.fields = {is_client_f, seq_f, crc_f, msgtype_f, berth_f, descr_f}
 
 -------------
 -- Helpers --
@@ -57,7 +58,9 @@ end
 -- Default message parser for when the type of message is known, but the body content syntax is not.
 local function unknown_body(descr)
   return function(buf, tree, cmd)
-    tree:add(proto, buf, "Unknown message body content", ("[%d bytes]"):format(buf:len()));
+    if buf then
+      tree:add(proto, buf, "Unknown message body content", ("[%d bytes]"):format(buf:len()));
+    end
     return ("%s (%s)"):format(descr, cmd)
   end
 end
@@ -153,7 +156,13 @@ function msgtypes:process(buf, tree)
   local cmd = buf(0, 2)
   local f = self[cmd:string()] or self.default
   local ttree = tree:add(msgtype_f, cmd)
-  local msgname = f(buf(2), tree, cmd:string())
+
+  if buf:len() > 2 then
+    buf = buf(2)
+  else
+    buf = nil
+  end
+  local msgname = f(buf, tree, cmd:string())
   tree:append_text(', ' .. msgname)
   return msgname
 end
@@ -163,9 +172,9 @@ end
 ---------------------------------
 function proto.dissector(buffer, pinfo, tree)
   pinfo.cols.protocol = "SimSig"
-  tree = tree:add(proto, buffer())
-  local ptree = tree
   local info = 'ERROR, packet not parsed'
+
+  local server = is_server()
 
   -- Use raw string function, as may contain extended ASCII characters that get converted to UTF8
   -- with :string(), and cause length mismatches due to wireshark lua bugs
@@ -173,13 +182,14 @@ function proto.dissector(buffer, pinfo, tree)
   local _, npkts = body:gsub('|', '|')
   local n = 0
   for init, pkt, fin in body:gmatch("()([^|]+)()|") do
+    n = n + 1
     local begin = init - 1
     local len = fin - init
     local buf = buffer(begin, len)
 
-    n = n + 1
-    if npkts > 1 then
-      ptree = tree:add(proto, buf, "Message", n)
+    local ptree = tree:add(proto, buffer(begin, len+1))
+    if (npkts > 1) then
+      ptree:append_text(string.format(" (Message %d of %d)", n, npkts))
     end
 
     if buf(0, 1):string() == "!" then
@@ -190,13 +200,13 @@ function proto.dissector(buffer, pinfo, tree)
     end
 
     info = msgtypes:process(buf, ptree)
+    ptree:add(is_client_f, not server):set_generated()
   end
 
-  tree:add(msgs_f, npkts):set_generated()
   if npkts > 1 then
-    info = "Batched messages"
+    info = n .. " batched messages"
   end
-  pinfo.cols.info = (is_server() and "Server: " or "Client: ") .. info
+  pinfo.cols.info = (server and "Server: " or "Client: ") .. info
 end
 
 ----------------------------
