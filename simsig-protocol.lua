@@ -66,7 +66,7 @@ end
 -- Message types --
 -------------------
 local msgtypes = {
-  -- Connection strings
+  -- ** Connection strings ** --
   ["iA"] = function(buf, tree)
     tree:add(proto, buf(0,4), "Client name:", buf(0,4):string())
     tree:add(proto, buf(4,1), "Unknown:", buf(4,1):string())
@@ -76,12 +76,22 @@ local msgtypes = {
     return "Version: "..parse_version(buf, tree)
   end,
 
+  -- ** Server ** --
   ["MA"] = function(buf, tree)
     local str = buf:string()
     tree:add(proto, buf, "Sim setting:", str)
     return "Sim setting: " .. str
   end,
+  ["sB"] = function(buf, tree)
+    local id = parse_id(buf)
+    tree:add(berth_f, buf(0,4), id)
+    local desc = buf(4,4):string()
+    tree:add(descr_f, buf(4,4))
+    tree:add(proto, buf(8), "Unknown message body content", ("[%d bytes]"):format(buf:len()));
+    return ("Update berth: %s = %s"):format(id_str(id), desc)
+  end,
 
+  -- ** Client ** --
   -- Berth Requests
   ["BB"] = function(buf, tree)
     local id = parse_id(buf)
