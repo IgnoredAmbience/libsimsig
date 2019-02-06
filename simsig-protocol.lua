@@ -91,12 +91,19 @@ local msgtypes = {
     tree:add(sim_setting_f, buf)
     return "Sim setting: " .. str
   end,
+
+  -- Updates
   ["sB"] = function(buf, tree)
     local id = parse_id(buf)
     tree:add(berth_f, buf(0,4), id)
     local desc = buf(4,4):string()
     tree:add(descr_f, buf(4,4))
-    tree:add(proto, buf(8), "Unknown message body content", ("[%d bytes]"):format(buf:len()));
+    tree:add(proto, buf(8,8), "Unknown message body content [8 bytes]");
+    tree:add(proto, buf(16,6), "Foreground Colour (ARS Status):", buf(16,6):string())
+    tree:add(proto, buf(22,6), "Background Colour (ARS Status):", buf(22,6):string())
+    tree:add(proto, buf(28,6), "Foreground Colour (Delay):", buf(28,6):string())
+    tree:add(proto, buf(34,6), "Background Colour (Delay):", buf(34,6):string())
+    tree:add(proto, buf(40,8), "Unknown message body content [8 bytes]");
     return ("Update berth: %s = %s"):format(id_str(id), desc)
   end,
 
