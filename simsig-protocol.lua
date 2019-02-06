@@ -14,12 +14,13 @@ local crc_f = ProtoField.uint8("simsig.crc.value", "CRC", base.HEX)
 --local crcvalid_f = ProtoField.bool("simsig.crc.valid", "CRC Valid")
 
 local msgtype_f = ProtoField.string("simsig.type", "Message type")
+local sim_setting_f = ProtoField.string("simsig.sim_setting", "Sim setting")
 
 -- Identifiers
 local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
 local descr_f = ProtoField.string("simsig.description", "Berth Description")
 
-proto.fields = {is_client_f, seq_f, crc_f, msgtype_f, berth_f, descr_f}
+proto.fields = {is_client_f, seq_f, crc_f, msgtype_f, sim_setting_f, berth_f, descr_f}
 
 -------------
 -- Helpers --
@@ -80,9 +81,14 @@ local msgtypes = {
   end,
 
   -- ** Server ** --
+  ["lA"] = function(buf, tree)
+    local str = buf:string()
+    tree:add(sim_setting_f, buf)
+    return "Sim setting: " .. str
+  end,
   ["MA"] = function(buf, tree)
     local str = buf:string()
-    tree:add(proto, buf, "Sim setting:", str)
+    tree:add(sim_setting_f, buf)
     return "Sim setting: " .. str
   end,
   ["sB"] = function(buf, tree)
