@@ -16,16 +16,20 @@ local crc_f = ProtoField.uint8("simsig.crc.value", "CRC", base.HEX)
 local msgtype_f = ProtoField.string("simsig.type", "Message type")
 local sim_setting_f = ProtoField.string("simsig.sim_setting", "Sim setting")
 
--- Identifiers
+-- General Identifiers
 local descr_f = ProtoField.string("simsig.description", "Berth Description")
 local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
 local sig_f = ProtoField.uint16("simsig.sig_id", "Signal ID", base.DEC_HEX)
+
+local ping_time_f = ProtoField.absolute_time("simsig.ping_time", "Ping/Pong Time")
+local latency_f = ProtoField.relative_time("simsig.latency", "Latency")
 
 -- Debug
 local unknown_msg_f = ProtoField.bool("simsig.todo_msg", "Message type needs decoding")
 local unknown_f = ProtoField.bool("simsig.todo", "Message body needs decoding")
 
 proto.fields = {is_client_f, seq_f, crc_f, msgtype_f, sim_setting_f, descr_f, berth_f, sig_f,
+                ping_time_f, latency_f,
                 unknown_msg_f, unknown_f}
 
 -------------
@@ -49,6 +53,23 @@ local function parse_version(tree, buf)
     tree:add(proto, buf(l+k+2), "Sim ID:", sim)
   end
   return ver
+end
+
+local function delphi_datetime_to_unix(datetime)
+  local epoch = 25569                -- 1970-01-01 00:00:00
+  local t = (tonumber(datetime)-epoch)*86400
+  return NSTime.new(math.floor(t), ) -- days to seconds
+end
+
+local frame_time_f = Field.new("frame.time")
+local function pingpong(desc)
+  return function(tree, buf)
+    local time = delphi_datetime_to_unix(buf:string())
+    tree:add(ping_time_f, buf, time)
+    local delta = frame_time_f().value - time
+    tree:add(latency_f, delta)
+    return desc
+  end
 end
 
 -- SimSig passes object identifiers encoded as string hex, they are 2 bytes long.
@@ -116,6 +137,10 @@ local msgtypes = {
   end,
   ["iE"] = empty_body("Disconnect"),
 
+  -- Ping/Pong
+  ["zG"] = pingpong("Ping!"),
+  ["zH"] = pingpong("Pong!"),
+
   -- ** Server ** --
   ["lA"] = function(tree, buf)
     local str = buf:string()
@@ -164,7 +189,7 @@ local msgtypes = {
     unknown(tree, buf(15))
     return string.format("Set route, %s → %s", entry_sig, exit_sig)
   end,
-  ["zD"] = unknown_body("Cancel route"),
+  ["zD"] = signal_cmd("Cancel route"),
   ["SB"] = signal_cmd("Apply isolation reminder to signal"),
   ["SC"] = signal_cmd("Remove isolation reminder from signal"),
   ["SD"] = signal_cmd("Apply general reminder to signal"),
