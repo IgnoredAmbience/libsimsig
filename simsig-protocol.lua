@@ -57,8 +57,9 @@ end
 
 local function delphi_datetime_to_unix(datetime)
   local epoch = 25569                -- 1970-01-01 00:00:00
-  local t = (tonumber(datetime)-epoch)*86400
-  return NSTime.new(math.floor(t), ) -- days to seconds
+  local s = (tonumber(datetime)-epoch)*86400
+  local ns = math.fmod(s, 1) * 1000000000
+  return NSTime.new(math.floor(s), ns) -- days to seconds
 end
 
 local frame_time_f = Field.new("frame.time")
