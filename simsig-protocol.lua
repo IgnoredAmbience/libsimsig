@@ -17,10 +17,16 @@ local msgtype_f = ProtoField.string("simsig.type", "Message type")
 local sim_setting_f = ProtoField.string("simsig.sim_setting", "Sim setting")
 
 -- Identifiers
-local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
 local descr_f = ProtoField.string("simsig.description", "Berth Description")
+local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
+local sig_f = ProtoField.uint16("simsig.sig_id", "Signal ID", base.DEC_HEX)
 
-proto.fields = {is_client_f, seq_f, crc_f, msgtype_f, sim_setting_f, berth_f, descr_f}
+-- Debug
+local unknown_msg_f = ProtoField.bool("simsig.todo_msg", "Message type needs decoding")
+local unknown_f = ProtoField.bool("simsig.todo", "Message body needs decoding")
+
+proto.fields = {is_client_f, seq_f, crc_f, msgtype_f, sim_setting_f, descr_f, berth_f, sig_f,
+                unknown_msg_f, unknown_f}
 
 -------------
 -- Helpers --
@@ -33,7 +39,7 @@ function is_server()
   return src_port == 50505 or src_port == 50507
 end
 
-local function parse_version(buf, tree)
+local function parse_version(tree, buf)
   local ver, sim_ver, loader_ver, sim = buf:string():match("(([%d%.]+)/([%d%.]+)/(.+))")
   if sim_ver then
     local l = #sim_ver
@@ -51,18 +57,47 @@ local function parse_id(buf)
   return tonumber(buf(0,4):string(), 16)
 end
 
--- Prints an object identity in decimal followed by hex
-local function id_str(id)
-  return string.format("%d (0x%.4x)", id, id)
+local function add_id(tree, buf, field, prepend)
+  local val = parse_id(buf)
+  local t = tree:add(field, buf(0,4), val)
+  if prepend then
+    t:prepend_text(prepend .. " ")
+  end
+  return val
+end
+
+local function signal_cmd(descr)
+  return function(tree, buf)
+    local id = add_id(tree, buf, sig_f)
+    return descr .. ": " .. id
+  end
+end
+
+local function unknown(tree, buf, descr)
+  if not descr then
+    descr = "Unknown message body content"
+  end
+  if buf then
+    tree:add(unknown_f, buf, true, descr, ("[%d bytes]"):format(buf:len()))
+  end
 end
 
 -- Default message parser for when the type of message is known, but the body content syntax is not.
 local function unknown_body(descr)
-  return function(buf, tree, cmd)
-    if buf then
-      tree:add(proto, buf, "Unknown message body content", ("[%d bytes]"):format(buf:len()));
+  return function(tree, buf, cmd)
+    unknown(tree, buf)
+    local d = descr
+    if not d then
+      tree:add(unknown_msg_f, true):set_generated()
+      d = "Unknown command"
     end
-    return ("%s (%s)"):format(descr, cmd)
+    return ("%s (%s)"):format(d, cmd)
+  end
+end
+
+local function empty_body(descr)
+  return function()
+    return desc
   end
 end
 
@@ -71,78 +106,83 @@ end
 -------------------
 local msgtypes = {
   -- ** Connection strings ** --
-  ["iA"] = function(buf, tree)
+  ["iA"] = function(tree, buf)
     tree:add(proto, buf(0,4), "Client name:", buf(0,4):string())
     tree:add(proto, buf(4,1), "Unknown:", buf(4,1):string())
-    return "Connect, version: "..parse_version(buf(5), tree)
+    return "Connect, version: "..parse_version(tree, buf(5))
   end,
-  ["iD"] = function(buf, tree)
-    return "Version: "..parse_version(buf, tree)
+  ["iD"] = function(tree, buf)
+    return "Version: "..parse_version(tree, buf)
   end,
+  ["iE"] = empty_body("Disconnect"),
 
   -- ** Server ** --
-  ["lA"] = function(buf, tree)
+  ["lA"] = function(tree, buf)
     local str = buf:string()
     tree:add(sim_setting_f, buf)
     return "Sim setting: " .. str
   end,
-  ["MA"] = function(buf, tree)
+  ["MA"] = function(tree, buf)
     local str = buf:string()
     tree:add(sim_setting_f, buf)
     return "Sim setting: " .. str
   end,
 
   -- Updates
-  ["sB"] = function(buf, tree)
-    local id = parse_id(buf)
-    tree:add(berth_f, buf(0,4), id)
+  ["sB"] = function(tree, buf)
+    local id = add_id(tree, buf(0,4), berth_f)
     local desc = buf(4,4):string()
     tree:add(descr_f, buf(4,4))
-    tree:add(proto, buf(8,8), "Unknown message body content [8 bytes]");
+    unknown(tree, buf(8,8))
     tree:add(proto, buf(16,6), "Foreground Colour (ARS Status):", buf(16,6):string())
     tree:add(proto, buf(22,6), "Background Colour (ARS Status):", buf(22,6):string())
     tree:add(proto, buf(28,6), "Foreground Colour (Delay):", buf(28,6):string())
     tree:add(proto, buf(34,6), "Background Colour (Delay):", buf(34,6):string())
-    tree:add(proto, buf(40,8), "Unknown message body content [8 bytes]");
-    return ("Update berth: %s = %s"):format(id_str(id), desc)
+    unknown(tree, buf(40,8))
+    return ("Update berth: %s = %s"):format(id, desc)
   end,
 
   -- ** Client ** --
   -- Berth Requests
-  ["BB"] = function(buf, tree)
-    local id = parse_id(buf)
+  ["BB"] = function(tree, buf)
+    local id = add_id(tree, buf, berth_f)
     local desc = buf(4,4):string()
-    tree:add(berth_f, buf(0,4), id)
     tree:add(descr_f, buf(4,4))
-    return ("Interpose berth: %s = %s"):format(id_str(id), desc)
+    return ("Interpose berth: %s ← %s"):format(id, desc)
   end,
-  ["BC"] = function(buf, tree)
-    local id = parse_id(buf)
-    tree:add(berth_f, buf, id)
-    return "Cancel berth: " .. id_str(id)
+  ["BC"] = function(tree, buf)
+    local id = add_id(tree, buf, berth_f)
+    return "Cancel berth: " .. id
   end,
 
   -- Signals
-  ["SA"] = unknown_body("Set route"),
+  ["SA"] = function(tree, buf)
+    local entry_sig = add_id(tree, buf, sig_f, "Entry")
+    local exit_sig = add_id(tree, buf(4), sig_f, "Exit")
+    unknown(tree, buf(8,3), "Unknown bitfield, possibly reminder override")
+    local other_sig = add_id(tree, buf(11), sig_f, "Other")
+    unknown(tree, buf(15))
+    return string.format("Set route, %s → %s", entry_sig, exit_sig)
+  end,
   ["zD"] = unknown_body("Cancel route"),
-  ["SB"] = unknown_body("Apply isolation reminder to signal"),
-  ["SC"] = unknown_body("Remove isolation reminder from signal"),
-  ["SD"] = unknown_body("Apply general reminder to signal"),
-  ["SE"] = unknown_body("Remove general reminder from signal"),
+  ["SB"] = signal_cmd("Apply isolation reminder to signal"),
+  ["SC"] = signal_cmd("Remove isolation reminder from signal"),
+  ["SD"] = signal_cmd("Apply general reminder to signal"),
+  ["SE"] = signal_cmd("Remove general reminder from signal"),
   -- Auto buttons
-  ["SF"] = unknown_body("Set signal auto"),
-  ["SG"] = unknown_body("Cancel signal auto"),
-  ["SH"] = unknown_body("Apply isolation reminder to auto button"),
-  ["SI"] = unknown_body("Apply general reminder to auto button"),
-  ["SJ"] = unknown_body("Remove isolation reminder from auto button"),
-  ["SK"] = unknown_body("Remove general reminder from auto button"),
+  ["SF"] = signal_cmd("Set signal auto"),
+  ["SG"] = signal_cmd("Cancel signal auto"),
+  ["SH"] = signal_cmd("Apply isolation reminder to auto button"),
+  ["SI"] = signal_cmd("Apply general reminder to auto button"),
+  ["SJ"] = signal_cmd("Remove isolation reminder from auto button"),
+  ["SK"] = signal_cmd("Remove general reminder from auto button"),
   -- Replacement buttons
-  ["SP"] = unknown_body("Cancel signal replacement"),
-  ["SQ"] = unknown_body("Set signal replacement"),
-  ["SR"] = unknown_body("Apply isolation reminder to replacement button"),
-  ["SS"] = unknown_body("Apply general reminder to replacement button"),
-  ["ST"] = unknown_body("Remove isolation reminder from replacement button"),
-  ["SU"] = unknown_body("Remove general reminder from replacement button"),
+  ["SP"] = signal_cmd("Cancel signal replacement"),
+  ["SQ"] = signal_cmd("Set signal replacement"),
+  ["SR"] = signal_cmd("Apply isolation reminder to replacement button"),
+  ["SS"] = signal_cmd("Apply general reminder to replacement button"),
+  ["ST"] = signal_cmd("Remove isolation reminder from replacement button"),
+  ["SU"] = signal_cmd("Remove general reminder from replacement button"),
 
   -- Points Setting
   ["PB"] = unknown_body("Key points normal"),
@@ -153,29 +193,42 @@ local msgtypes = {
   -- Refresh State
   ["iB"] = unknown_body("Request refresh object state"),
 
+  -- ARS Control
+  ["aA"] = unknown_body("Make Train ARS"),      -- xxxxDESC, response sim msgs type 04
+  ["aB"] = unknown_body("Make Train Non-ARS"),  -- xxxxDESC, response sim msgs type 04
+  ["aC"] = unknown_body("Is Train ARS?"),       -- xxxxDESC, response sim msgs type 04
+  ["aE"] = unknown_body("Query ARS Status"),    -- xxxxDESC, response sim msgs type 04
+  ["aF"] = unknown_body("Query ARS Timetable"), -- xxxxDESC, response sim msgs type 04
+
+  -- Timetable
+  ["tO"] = unknown_body("Timetable Request"),         -- DESC      BRTH
+  ["tL"] = empty_body("Timetable Response Begin"),
+  ["tM"] = unknown_body("Timetable Response Line"),   -- free text body, multiple rows, ends two empty?
+
   -- Messages
-  ["mA"] = function(buf, tree)
+  ["mA"] = function(tree, buf)
     local text = buf(2):string()
     tree:add(proto, buf(0, 2), "Simulation message type:", buf(0, 2):string())
     tree:add(proto, buf(2), "Message content:", text)
     return ("Simulation message (%s)"):format(text)
   end,
 
-  default = unknown_body("Unknown command"),
+  default = unknown_body(),
 }
 
 -- Takes a message and parses with appropriate parser
-function msgtypes:process(buf, tree)
-  local cmd = buf(0, 2)
+function msgtypes:process(tree, buf)
+  local b = buf
+  local cmd = b(0, 2)
   local f = self[cmd:string()] or self.default
   local ttree = tree:add(msgtype_f, cmd)
 
-  if buf:len() > 2 then
-    buf = buf(2)
+  if b:len() > 2 then
+    b = b(2)
   else
-    buf = nil
+    b = nil
   end
-  local msgname = f(buf, tree, cmd:string())
+  local msgname = f(tree, b, cmd:string())
   tree:append_text(', ' .. msgname)
   return msgname
 end
@@ -212,7 +265,7 @@ function proto.dissector(buffer, pinfo, tree)
       buf = buf(3, len-3)
     end
 
-    info = msgtypes:process(buf, ptree)
+    info = msgtypes:process(ptree, buf)
     ptree:add(is_client_f, not server):set_generated()
   end
 
