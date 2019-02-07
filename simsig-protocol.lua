@@ -119,7 +119,7 @@ end
 
 local function empty_body(descr)
   return function()
-    return desc
+    return descr
   end
 end
 
