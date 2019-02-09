@@ -32,6 +32,17 @@ local descr_f = ProtoField.string("simsig.description", "Berth Description")
 local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
 local sig_f = ProtoField.uint16("simsig.signal.id", "Signal ID", base.DEC_HEX)
 
+-- Signal information
+-- defined as bytes although will be 2 bytes. uint8 doesn't support ENC_STRING
+local sig_rem_f = ProtoField.bytes("simsig.signal.reminders", "Reminders Applied")
+local sig_rem_gen_f = ProtoField.bool("simsig.signal.reminders.gen", "General", 8, nil, 0x1)
+local sig_rem_iso_f = ProtoField.bool("simsig.signal.reminders.iso", "Isolation", 8, nil, 0x2)
+local sig_aut_gen_f = ProtoField.bool("simsig.signal.reminders.gen_auto", "General Auto", 8, nil, 0x4)
+local sig_aut_iso_f = ProtoField.bool("simsig.signal.reminders.iso_auto", "Isolation Auto", 8, nil, 0x8)
+local sig_rem_unk_f = ProtoField.bool("simsig.signal.reminders.unknown", "Unknown", 8, nil, 0x30)
+local sig_rep_gen_f = ProtoField.bool("simsig.signal.reminders.gen_repl", "General Replacement", 8, nil, 0x40)
+local sig_rep_iso_f = ProtoField.bool("simsig.signal.reminders.iso_repl", "Isolation Replacement", 8, nil, 0x80)
+
 -- Debug
 local unknown_msg_f = ProtoField.bool("simsig.todo_msg", "Message type needs decoding")
 local unknown_f = ProtoField.bool("simsig.todo", "Message body needs decoding")
@@ -40,6 +51,8 @@ proto.fields = {is_client_f, seq_f, crc_f, msgtype_f,
                 sim_time_f, speed_f, pause_f,
                 ping_time_f, latency_f,
                 sim_setting_f, descr_f, berth_f, sig_f,
+                sig_rem_f, sig_rem_unk_f, sig_rem_gen_f, sig_rem_iso_f,
+                sig_aut_gen_f, sig_aut_iso_f, sig_rep_gen_f, sig_rep_iso_f,
                 unknown_msg_f, unknown_f}
 
 -------------
@@ -190,6 +203,20 @@ local msgtypes = {
     tree:add(proto, buf(34,6), "Background Colour (Delay):", buf(34,6):string())
     unknown(tree, buf(40,8))
     return ("Update berth: %s = %s"):format(id, desc)
+  end,
+
+  ["sS"] = function(tree, buf)
+    local id = add_id(tree, buf(0,4), sig_f)
+    local rems, val = tree:add_packet_field(sig_rem_f, buf(4,2), ENC_STR_HEX)
+    val = val:tvb()():uint()
+    rems:add(sig_rep_iso_f, buf(4,2), val)
+    rems:add(sig_rep_gen_f, buf(4,2), val)
+    rems:add(sig_rem_unk_f, buf(4,2), val)
+    rems:add(sig_aut_iso_f, buf(4,2), val)
+    rems:add(sig_aut_gen_f, buf(4,2), val)
+    rems:add(sig_rem_iso_f, buf(4,2), val)
+    rems:add(sig_rem_gen_f, buf(4,2), val)
+    return string.format("Update signal: %s", id)
   end,
 
   -- ** Client ** --
