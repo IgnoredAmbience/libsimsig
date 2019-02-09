@@ -8,28 +8,38 @@ local proto = Proto("simsig", "SimSig Protocol")
 --------------------
 -- Message fields --
 --------------------
+-- Headers/inferred
 local is_client_f = ProtoField.bool("simsig.is_client", "Client Message")
 local seq_f = ProtoField.uint8("simsig.seq", "Message sequence", base.DEC)
 local crc_f = ProtoField.uint8("simsig.crc.value", "CRC", base.HEX)
 --local crcvalid_f = ProtoField.bool("simsig.crc.valid", "CRC Valid")
 
 local msgtype_f = ProtoField.string("simsig.type", "Message type")
+
+-- Ping status
+local ping_time_f = ProtoField.absolute_time("simsig.ping_time", "Ping/Pong Time")
+local latency_f = ProtoField.relative_time("simsig.latency", "Latency")
+
+-- Clock Settings
+local sim_time_f = ProtoField.string("simsig.clock.time", "Sim Clock Time")
+local speed_f = ProtoField.uint8("simsig.clock.speed", "Sim Clock Speed")
+local pause_f = ProtoField.bool("simsig.clock.paused", "Sim Clock Paused")
+
 local sim_setting_f = ProtoField.string("simsig.sim_setting", "Sim setting")
 
 -- General Identifiers
 local descr_f = ProtoField.string("simsig.description", "Berth Description")
 local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
-local sig_f = ProtoField.uint16("simsig.sig_id", "Signal ID", base.DEC_HEX)
-
-local ping_time_f = ProtoField.absolute_time("simsig.ping_time", "Ping/Pong Time")
-local latency_f = ProtoField.relative_time("simsig.latency", "Latency")
+local sig_f = ProtoField.uint16("simsig.signal.id", "Signal ID", base.DEC_HEX)
 
 -- Debug
 local unknown_msg_f = ProtoField.bool("simsig.todo_msg", "Message type needs decoding")
 local unknown_f = ProtoField.bool("simsig.todo", "Message body needs decoding")
 
-proto.fields = {is_client_f, seq_f, crc_f, msgtype_f, sim_setting_f, descr_f, berth_f, sig_f,
+proto.fields = {is_client_f, seq_f, crc_f, msgtype_f,
+                sim_time_f, speed_f, pause_f,
                 ping_time_f, latency_f,
+                sim_setting_f, descr_f, berth_f, sig_f,
                 unknown_msg_f, unknown_f}
 
 -------------
@@ -56,10 +66,10 @@ local function parse_version(tree, buf)
 end
 
 local function delphi_datetime_to_unix(datetime)
-  local epoch = 25569                -- 1970-01-01 00:00:00
-  local s = (tonumber(datetime)-epoch)*86400
-  local ns = math.fmod(s, 1) * 1000000000
-  return NSTime.new(math.floor(s), ns) -- days to seconds
+  local epoch = 25569                        -- 1970-01-01 00:00:00
+  local s = (tonumber(datetime)-epoch)*86400 -- days to seconds
+  local ns = math.fmod(s, 1) * 1000000000    -- extract sub-seconds to nanoseconds
+  return NSTime.new(math.floor(s), ns)
 end
 
 local frame_time_f = Field.new("frame.time")
@@ -68,7 +78,7 @@ local function pingpong(desc)
     local time = delphi_datetime_to_unix(buf:string())
     tree:add(ping_time_f, buf, time)
     local delta = frame_time_f().value - time
-    tree:add(latency_f, delta)
+    tree:add(latency_f, delta):set_generated()
     return desc
   end
 end
@@ -141,6 +151,20 @@ local msgtypes = {
   -- Ping/Pong
   ["zG"] = pingpong("Ping!"),
   ["zH"] = pingpong("Pong!"),
+
+  -- Clock, sent by server, clients respond with prior state
+  -- Sim speed in tick/s (or x) is 500/speed
+  ["zA"] = function(tree, buf)
+    local time = os.date("!%T", tonumber(buf(0,8):string(), 16))
+    local speed = tonumber(buf(8,8):string(), 16)
+    local pause = tonumber(buf(16,1):string())
+    tree:add(sim_time_f, buf(0,8), time)
+    tree:add(speed_f, buf(8,8), speed):append_text(string.format(" (%.2fx)", 500/speed))
+    tree:add(pause_f, buf(16,1), pause)
+
+    local pause_s = pause and "paused" or "running"
+    return string.format("Clock update, %s, %s, %.2fx", pause_s, time, 500/speed)
+  end,
 
   -- ** Server ** --
   ["lA"] = function(tree, buf)
