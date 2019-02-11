@@ -42,6 +42,9 @@ local sig_rem_unk_f = ProtoField.bool("simsig.signal.reminders.unknown", "Unknow
 local sig_rep_gen_f = ProtoField.bool("simsig.signal.reminders.gen_repl", "General Replacement", 8, nil, 0x40)
 local sig_rep_iso_f = ProtoField.bool("simsig.signal.reminders.iso_repl", "Isolation Replacement", 8, nil, 0x80)
 
+-- Route setting
+local rem_override_f = ProtoField.bool("simsig.reminder_override", "Reminder Override", 8, nil, 0x1)
+
 -- Messages
 local message_type_f = ProtoField.uint8("simsig.message.type", "Message Type")
 local message_text_f = ProtoField.string("simsig.message.text", "Message Text")
@@ -56,6 +59,7 @@ proto.fields = {is_client_f, seq_f, crc_f, msgtype_f,
                 sim_setting_f, descr_f, berth_f, sig_f,
                 sig_rem_f, sig_rem_unk_f, sig_rem_gen_f, sig_rem_iso_f,
                 sig_aut_gen_f, sig_aut_iso_f, sig_rep_gen_f, sig_rep_iso_f,
+                rem_override_f,
                 message_type_f, message_text_f,
                 unknown_msg_f, unknown_f}
 
@@ -240,7 +244,9 @@ local msgtypes = {
   ["SA"] = function(tree, buf)
     local entry_sig = add_id(tree, buf, sig_f, "Entry")
     local exit_sig = add_id(tree, buf(4), sig_f, "Exit")
-    unknown(tree, buf(8,3), "Unknown bitfield, possibly reminder override")
+    unknown(tree, buf(8,1))
+    tree:add(rem_override_f, buf(9,1), buf_a_int(buf(9,1)))
+    unknown(tree, buf(10,1))
     local other_sig = add_id(tree, buf(11), sig_f, "Other")
     unknown(tree, buf(15))
     return string.format("Set route, %s → %s", entry_sig, exit_sig)
