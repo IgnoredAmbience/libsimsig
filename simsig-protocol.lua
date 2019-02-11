@@ -345,15 +345,15 @@ function proto.dissector(buffer, pinfo, tree)
       ptree:append_text(string.format(" (Message %d of %d)", n, npkts))
     end
 
+    local header = ptree:add(buf(0, 3), "Header")
+    header:add(is_client_f, not server):set_generated()
     if buf(0, 1):string() == "!" then
-      local header = ptree:add(buf(0, 3), "Header")
       header:add(seq_f, buf(1, 1), buf(1, 1):uint() - 33)
       header:add(crc_f, buf(2, 1))
       buf = buf(3, len-3)
     end
 
     info = msgtypes:process(ptree, buf)
-    ptree:add(is_client_f, not server):set_generated()
   end
 
   if npkts > 1 then
