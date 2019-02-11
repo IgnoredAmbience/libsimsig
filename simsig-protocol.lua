@@ -6,15 +6,15 @@
 local proto = Proto("simsig", "SimSig Protocol")
 
 --------------------
--- Message fields --
+-- Command fields --
 --------------------
 -- Headers/inferred
-local is_client_f = ProtoField.bool("simsig.is_client", "Client Message")
-local seq_f = ProtoField.uint8("simsig.seq", "Message sequence", base.DEC)
+local is_client_f = ProtoField.bool("simsig.is_client", "Client command")
+local seq_f = ProtoField.uint8("simsig.seq", "Command sequence", base.DEC)
 local crc_f = ProtoField.uint8("simsig.crc.value", "CRC", base.HEX)
 --local crcvalid_f = ProtoField.bool("simsig.crc.valid", "CRC Valid")
 
-local msgtype_f = ProtoField.string("simsig.type", "Message type")
+local msgtype_f = ProtoField.string("simsig.type", "Command type")
 
 -- Ping status
 local ping_time_f = ProtoField.absolute_time("simsig.ping_time", "Ping/Pong Time")
@@ -33,8 +33,7 @@ local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
 local sig_f = ProtoField.uint16("simsig.signal.id", "Signal ID", base.DEC_HEX)
 
 -- Signal information
--- defined as bytes although will be 2 bytes. uint8 doesn't support ENC_STRING
-local sig_rem_f = ProtoField.bytes("simsig.signal.reminders", "Reminders Applied")
+local sig_rem_f = ProtoField.uint8("simsig.signal.reminders", "Reminders Applied")
 local sig_rem_gen_f = ProtoField.bool("simsig.signal.reminders.gen", "General", 8, nil, 0x1)
 local sig_rem_iso_f = ProtoField.bool("simsig.signal.reminders.iso", "Isolation", 8, nil, 0x2)
 local sig_aut_gen_f = ProtoField.bool("simsig.signal.reminders.gen_auto", "General Auto", 8, nil, 0x4)
@@ -43,9 +42,13 @@ local sig_rem_unk_f = ProtoField.bool("simsig.signal.reminders.unknown", "Unknow
 local sig_rep_gen_f = ProtoField.bool("simsig.signal.reminders.gen_repl", "General Replacement", 8, nil, 0x40)
 local sig_rep_iso_f = ProtoField.bool("simsig.signal.reminders.iso_repl", "Isolation Replacement", 8, nil, 0x80)
 
+-- Messages
+local message_type_f = ProtoField.uint8("simsig.message.type", "Message Type")
+local message_text_f = ProtoField.string("simsig.message.text", "Message Text")
+
 -- Debug
-local unknown_msg_f = ProtoField.bool("simsig.todo_msg", "Message type needs decoding")
-local unknown_f = ProtoField.bool("simsig.todo", "Message body needs decoding")
+local unknown_msg_f = ProtoField.bool("simsig.todo_msg", "Command type needs decoding")
+local unknown_f = ProtoField.bool("simsig.todo", "Command body needs decoding")
 
 proto.fields = {is_client_f, seq_f, crc_f, msgtype_f,
                 sim_time_f, speed_f, pause_f,
@@ -53,13 +56,24 @@ proto.fields = {is_client_f, seq_f, crc_f, msgtype_f,
                 sim_setting_f, descr_f, berth_f, sig_f,
                 sig_rem_f, sig_rem_unk_f, sig_rem_gen_f, sig_rem_iso_f,
                 sig_aut_gen_f, sig_aut_iso_f, sig_rep_gen_f, sig_rep_iso_f,
+                message_type_f, message_text_f,
                 unknown_msg_f, unknown_f}
 
 -------------
 -- Helpers --
 -------------
+local function buf_a_int(buf)
+  return tonumber(buf:string(), 16)
+end
 
--- Test whether message is from client or server based upon src port.
+local function delphi_datetime_to_unix(datetime)
+  local epoch = 25569                        -- 1970-01-01 00:00:00
+  local s = (tonumber(datetime)-epoch)*86400 -- days to seconds
+  local ns = math.fmod(s, 1) * 1000000000    -- extract sub-seconds to nanoseconds
+  return NSTime.new(math.floor(s), ns)
+end
+
+-- Test whether command is from client or server based upon src port.
 local src_port_f = Field.new("tcp.srcport")
 function is_server()
   local src_port = src_port_f().value
@@ -78,13 +92,6 @@ local function parse_version(tree, buf)
   return ver
 end
 
-local function delphi_datetime_to_unix(datetime)
-  local epoch = 25569                        -- 1970-01-01 00:00:00
-  local s = (tonumber(datetime)-epoch)*86400 -- days to seconds
-  local ns = math.fmod(s, 1) * 1000000000    -- extract sub-seconds to nanoseconds
-  return NSTime.new(math.floor(s), ns)
-end
-
 local frame_time_f = Field.new("frame.time")
 local function pingpong(desc)
   return function(tree, buf)
@@ -98,12 +105,8 @@ end
 
 -- SimSig passes object identifiers encoded as string hex, they are 2 bytes long.
 -- Parse the given TvbRange into the native uint16 and store to given field
-local function parse_id(buf)
-  return tonumber(buf(0,4):string(), 16)
-end
-
 local function add_id(tree, buf, field, prepend)
-  local val = parse_id(buf)
+  local val = buf_a_int(buf(0,4))
   local t = tree:add(field, buf(0,4), val)
   if prepend then
     t:prepend_text(prepend .. " ")
@@ -120,14 +123,14 @@ end
 
 local function unknown(tree, buf, descr)
   if not descr then
-    descr = "Unknown message body content"
+    descr = "Unknown command body content"
   end
   if buf then
     tree:add(unknown_f, buf, true, descr, ("[%d bytes]"):format(buf:len()))
   end
 end
 
--- Default message parser for when the type of message is known, but the body content syntax is not.
+-- Default command parser for when the type of command is known, but the body content syntax is not.
 local function unknown_body(descr)
   return function(tree, buf, cmd)
     unknown(tree, buf)
@@ -168,9 +171,9 @@ local msgtypes = {
   -- Clock, sent by server, clients respond with prior state
   -- Sim speed in tick/s (or x) is 500/speed
   ["zA"] = function(tree, buf)
-    local time = os.date("!%T", tonumber(buf(0,8):string(), 16))
-    local speed = tonumber(buf(8,8):string(), 16)
-    local pause = tonumber(buf(16,1):string())
+    local time = os.date("!%T", buf_a_int(buf(0,8)))
+    local speed = buf_a_int(buf(8,8))
+    local pause = buf_a_int(buf(16,1))
     tree:add(sim_time_f, buf(0,8), time)
     tree:add(speed_f, buf(8,8), speed):append_text(string.format(" (%.2fx)", 500/speed))
     tree:add(pause_f, buf(16,1), pause)
@@ -207,8 +210,8 @@ local msgtypes = {
 
   ["sS"] = function(tree, buf)
     local id = add_id(tree, buf(0,4), sig_f)
-    local rems, val = tree:add_packet_field(sig_rem_f, buf(4,2), ENC_STR_HEX)
-    val = val:tvb()():uint()
+    local val = buf_a_int(buf(4,2))
+    local rems = tree:add(sig_rem_f, buf(4,2), val)
     rems:add(sig_rep_iso_f, buf(4,2), val)
     rems:add(sig_rep_gen_f, buf(4,2), val)
     rems:add(sig_rem_unk_f, buf(4,2), val)
@@ -216,6 +219,7 @@ local msgtypes = {
     rems:add(sig_aut_gen_f, buf(4,2), val)
     rems:add(sig_rem_iso_f, buf(4,2), val)
     rems:add(sig_rem_gen_f, buf(4,2), val)
+    unknown(tree, buf(6))
     return string.format("Update signal: %s", id)
   end,
 
@@ -284,16 +288,16 @@ local msgtypes = {
 
   -- Messages
   ["mA"] = function(tree, buf)
+    tree:add(message_type_f, buf(0,2), buf_a_int(buf(0,2)))
     local text = buf(2):string()
-    tree:add(proto, buf(0, 2), "Simulation message type:", buf(0, 2):string())
-    tree:add(proto, buf(2), "Message content:", text)
+    tree:add(message_text_f, buf(2), text)
     return ("Simulation message (%s)"):format(text)
   end,
 
   default = unknown_body(),
 }
 
--- Takes a message and parses with appropriate parser
+-- Takes a command and parses with appropriate parser
 function msgtypes:process(tree, buf)
   local b = buf
   local cmd = b(0, 2)
@@ -336,7 +340,7 @@ function proto.dissector(buffer, pinfo, tree)
     end
 
     if buf(0, 1):string() == "!" then
-      local header = ptree:add(proto, buf(0, 3), "Header")
+      local header = ptree:add(buf(0, 3), "Header")
       header:add(seq_f, buf(1, 1), buf(1, 1):uint() - 33)
       header:add(crc_f, buf(2, 1))
       buf = buf(3, len-3)
@@ -347,7 +351,7 @@ function proto.dissector(buffer, pinfo, tree)
   end
 
   if npkts > 1 then
-    info = n .. " batched messages"
+    info = n .. " batched commands"
   end
   pinfo.cols.info = (server and "Server: " or "Client: ") .. info
 end
