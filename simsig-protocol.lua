@@ -27,13 +27,18 @@ local pause_f = ProtoField.bool("simsig.clock.paused", "Sim Clock Paused")
 
 local sim_setting_f = ProtoField.string("simsig.sim_setting", "Sim setting")
 
--- General Identifiers
+-- General Identifiers, all generally use 0-index of position in save game file. -1 for when unset.
 local descr_f = ProtoField.string("simsig.description", "Berth Description")
-local berth_f = ProtoField.uint16("simsig.berth_id", "Berth ID", base.DEC_HEX)
-local sig_f = ProtoField.uint16("simsig.signal.id", "Signal ID", base.DEC_HEX)
+local berth_f = ProtoField.int16("simsig.berth_id", "Berth ID")
+local route_f = ProtoField.int16("simsig.route_id", "Route ID")
 
 -- Signal information
-local sig_rem_f = ProtoField.uint8("simsig.signal.reminders", "Reminders Applied")
+local sig_f = ProtoField.int16("simsig.signal.id", "Signal ID")
+
+local sig_state_f = ProtoField.uint8("simsig.signal.state", "Signal State", base.HEX)
+local sig_rep_f = ProtoField.bool("simsig.signal.replacement", "Signal Replacement Button State?", 8, nil, 0x1)
+
+local sig_rem_f = ProtoField.uint8("simsig.signal.reminders", "Reminders Applied", base.HEX)
 local sig_rem_gen_f = ProtoField.bool("simsig.signal.reminders.gen", "General", 8, nil, 0x1)
 local sig_rem_iso_f = ProtoField.bool("simsig.signal.reminders.iso", "Isolation", 8, nil, 0x2)
 local sig_aut_gen_f = ProtoField.bool("simsig.signal.reminders.gen_auto", "General Auto", 8, nil, 0x4)
@@ -56,7 +61,8 @@ local unknown_f = ProtoField.bool("simsig.todo", "Command body needs decoding")
 proto.fields = {is_client_f, seq_f, crc_f, msgtype_f,
                 sim_time_f, speed_f, pause_f,
                 ping_time_f, latency_f,
-                sim_setting_f, descr_f, berth_f, sig_f,
+                sim_setting_f, descr_f, berth_f, route_f,
+                sig_f, sig_state_f, sig_rep_f,
                 sig_rem_f, sig_rem_unk_f, sig_rem_gen_f, sig_rem_iso_f,
                 sig_aut_gen_f, sig_aut_iso_f, sig_rep_gen_f, sig_rep_iso_f,
                 rem_override_f,
@@ -214,16 +220,70 @@ local msgtypes = {
 
   ["sS"] = function(tree, buf)
     local id = add_id(tree, buf(0,4), sig_f)
-    local val = buf_a_int(buf(4,2))
-    local rems = tree:add(sig_rem_f, buf(4,2), val)
-    rems:add(sig_rep_iso_f, buf(4,2), val)
-    rems:add(sig_rep_gen_f, buf(4,2), val)
-    rems:add(sig_rem_unk_f, buf(4,2), val)
-    rems:add(sig_aut_iso_f, buf(4,2), val)
-    rems:add(sig_aut_gen_f, buf(4,2), val)
-    rems:add(sig_rem_iso_f, buf(4,2), val)
-    rems:add(sig_rem_gen_f, buf(4,2), val)
-    unknown(tree, buf(6))
+    local rems_val = buf_a_int(buf(4,2))
+    local rems = tree:add(sig_rem_f, buf(4,2), rems_val)
+    rems:add(sig_rep_iso_f, buf(4,2), rems_val)
+    rems:add(sig_rep_gen_f, buf(4,2), rems_val)
+    rems:add(sig_rem_unk_f, buf(4,2), rems_val)
+    rems:add(sig_aut_iso_f, buf(4,2), rems_val)
+    rems:add(sig_aut_gen_f, buf(4,2), rems_val)
+    rems:add(sig_rem_iso_f, buf(4,2), rems_val)
+    rems:add(sig_rem_gen_f, buf(4,2), rems_val)
+
+    local state_val = buf_a_int(buf(6,2))
+    local state = tree:add(sig_state_f, buf(6,2), state_val)
+
+    local route = add_id(tree, buf(8,4), route_f)
+
+    unknown(tree, buf(12,2))
+    -- sig: 255, init: 36014D10
+    -- replace 255   : 26014D10
+    -- repace 255, 2 : 20014D10
+    --
+    -- sig 256, init : 36FFFF10
+    -- r255, imp 256 : 32FFFF10
+    -- c255 imp 256  : 36FFFF10
+    --
+    -- clear 255     : 30014D10
+    -- clear 255, 2  : 36014D10
+
+    -- 222->229      : 20012A10 (x3)
+    --               : 22012A10
+    -- cancel 222    : 20012A10
+    --               : 20FFFF10
+    --
+    -- 222->227      : 20012910 (x3)
+    --               : 22012910
+    -- cancel 222    : 20012910
+    --               : 20FFFF10
+    --
+    -- 222->229      : 20012A10 (x3)
+    --               : 22012A10
+    -- auto 222      : 32012A10
+    -- cancel 222    : 30012A10
+    --               : 30FFFF10
+    --               : 20FFFF10
+    --
+    -- init 28       : default
+    -- shunt 28->30  : 20001D10 (x3)
+    --               : 21001D10
+    -- cancel 28     : 20001D10
+    --               : 20FFFF10
+    --
+    -- init 205 (auto) : 36010D10
+    -- replace 205     : 26010D10
+    --                 : 20010D10
+    -- cancel replace  : 30010D10
+    --                 : 36010D10
+    --
+    -- init 207 (auto) : 36011210
+    -- init 209 (auto) : 36011410
+    -- replace 207     : 26011210
+    --                 : 20011210
+    -- impacts 209     : 32011410
+    --
+    --
+    unknown(tree, buf(14,4))
     return string.format("Update signal: %s", id)
   end,
 
