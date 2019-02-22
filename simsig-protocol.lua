@@ -59,6 +59,10 @@ local rem_override_f = ProtoField.bool("simsig.reminder_override", "Reminder Ove
 local message_type_f = ProtoField.uint8("simsig.message.type", "Message Type")
 local message_text_f = ProtoField.string("simsig.message.text", "Message Text")
 
+-- Workstation Control
+local workstation_f = ProtoField.int16("simsig.workstation_id", "Workstation ID")
+local workstation_control_f = ProtoField.bool("simsig.workstation.taken", "Workstation Control Taken")
+
 -- Debug
 local unknown_msg_f = ProtoField.bool("simsig.todo_msg", "Command type needs decoding")
 local unknown_f = ProtoField.bool("simsig.todo", "Command body needs decoding")
@@ -72,6 +76,7 @@ proto.fields = {is_client_f, seq_f, crc_f, msgtype_f,
                 sig_aut_gen_f, sig_aut_iso_f, sig_rep_gen_f, sig_rep_iso_f,
                 rem_override_f,
                 message_type_f, message_text_f,
+                workstation_f, workstation_control_f,
                 unknown_msg_f, unknown_f}
 
 -------------
@@ -129,11 +134,15 @@ local function add_id(tree, buf, field, prepend)
   return val
 end
 
-local function signal_cmd(descr)
+local function basic_cmd(descr, field)
   return function(tree, buf)
-    local id = add_id(tree, buf, sig_f)
+    local id = add_id(tree, buf, field)
     return descr .. ": " .. id
   end
+end
+
+local function signal_cmd(descr)
+  return basic_cmd(descr, sig_f)
 end
 
 local function unknown(tree, buf, descr)
@@ -321,6 +330,17 @@ local msgtypes = {
     local text = buf(2):string()
     tree:add(message_text_f, buf(2), text)
     return ("Simulation message (%s)"):format(text)
+  end,
+
+  -- Workstation Control
+  ["WA"] = basic_cmd("Take Workstation Control", workstation_f),
+  ["WB"] = basic_cmd("Cease Workstation Control", workstation_f),
+  ["WC"] = function(tree, buf)
+    local id = add_id(tree, buf, workstation_f)
+    local bool = buf_a_int(buf(4,1))
+    tree:add(workstation_control_f, buf(5,1), bool)
+    local text = if bool then "taken" else "ceased" end
+    return ("Workstation control %s for workstation id: %s"):format(text, id)
   end,
 
   default = unknown_body(),
